@@ -134,7 +134,7 @@ if __name__ == '__main__':
         #model="llama3.2:3b",
         model="deepseek-r1:8b",
         system_prompt=system_prompt,
-        reinforce_every=1  # Reinforce system prompt every 5 turns
+        reinforce_every=1  # Reinforce system prompt every turn
     )
 
     for segment in speaker_segments:
@@ -195,4 +195,3 @@ if __name__ == '__main__':
     plt.grid(axis='y', alpha=0.3)
     plt.tight_layout()
     plt.show()
-
