@@ -1,0 +1,139 @@
+Index: main.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>import ollama\nimport re\nimport matplotlib.pyplot as plt\n\nclass ConversationContext:\n    \"\"\"\n    Manages conversation history for maintaining context with Ollama models.\n    \"\"\"\n    def __init__(self, model=\"llama3.2:3b\", system_prompt=None, reinforce_every=None):\n        self.model = model\n        self.messages = []\n        self.system_prompt = system_prompt\n        self.reinforce_every = reinforce_every\n        self.turn_count = 0\n\n        # Add system prompt if provided\n        if system_prompt:\n            self.messages.append({\n                'role': 'system',\n                'content': system_prompt\n            })\n\n    def add_message(self, role, content):\n        \"\"\"Add a message to the conversation history.\"\"\"\n        self.messages.append({\n            'role': role,\n            'content': content\n        })\n\n    def chat(self, user_message, stream=False):\n        \"\"\"\n        Send a message and get a response while maintaining context.\n\n        Args:\n            user_message (str): The user's message\n            stream (bool): Whether to stream the response\n\n        Returns:\n            str or generator: The assistant's response\n        \"\"\"\n        # Increment turn counter\n        self.turn_count += 1\n\n        # Reinforce system prompt if needed\n        if self.reinforce_every and self.turn_count % self.reinforce_every == 0 and self.system_prompt:\n            user_message = user_message + '\\n\\n[System Reminder]\\n' + self.system_prompt\n\n        # Add user message to history\n        self.add_message('user', user_message)\n\n        if stream:\n            return self._stream_chat()\n        else:\n            return self._chat()\n\n    def _chat(self):\n        \"\"\"Non-streaming chat.\"\"\"\n        try:\n            response = ollama.chat(\n                model=self.model,\n                messages=self.messages\n            )\n            assistant_message = response['message']['content']\n\n            # Add assistant response to history\n            self.add_message('assistant', assistant_message)\n\n            return assistant_message\n        except Exception as e:\n            return f\"Error: {str(e)}\"\n\n    def _stream_chat(self):\n        \"\"\"Streaming chat.\"\"\"\n        try:\n            stream = ollama.chat(\n                model=self.model,\n                messages=self.messages,\n                stream=True\n            )\n\n            # Collect the full response while streaming\n            full_response = \"\"\n            for chunk in stream:\n                content = chunk['message']['content']\n                full_response += content\n                yield content\n\n            # Add assistant response to history after streaming completes\n            self.add_message('assistant', full_response)\n\n        except Exception as e:\n            yield f\"Error: {str(e)}\"\n\n    def clear_history(self, keep_system=True):\n        \"\"\"\n        Clear conversation history.\n\n        Args:\n            keep_system (bool): Whether to keep the system prompt\n        \"\"\"\n        if keep_system and self.messages and self.messages[0]['role'] == 'system':\n            system_msg = self.messages[0]\n            self.messages = [system_msg]\n        else:\n            self.messages = []\n\n    def get_history(self):\n        \"\"\"Get the full conversation history.\"\"\"\n        return self.messages\n\n\nif __name__ == '__main__':\n    # Example: Feed transcript\n    print(\"Example: Debate Transcript\")\n    print(\"-\" * 50)\n    with open('Transcripts/Debate_transcript.txt', 'r') as f:\n        transcript = f.read()\n\n    # Split while keeping the speaker names\n    parts = re.split(r'(\\n)', transcript)\n\n    # Filter for only parts that contain KENNEDY or NIXON\n    names=['KENNEDY','NIXON','SMITH','FLEMING','NOVINS','WARREN','VANOCUR']\n    speaker_segments = [p for p in parts if any(name in p for name in names)]\n\n    speaker_response_true = [('KENNEDY' in p or 'NIXON' in p) for p in speaker_segments]\n    speaker_response_pred = []\n\n    KENNEDY = ['RESPONSE:'+ p for p in speaker_segments if 'KENNEDY' in p]\n    NIXON = ['RESPONSE:'+ p for p in speaker_segments if 'NIXON' in p]\n    MODS = ['QUESTION:'+ p for p in speaker_segments if any(name in p for name in ['SMITH','FLEMING','NOVINS','WARREN','VANOCUR'])]\n\n    # Load system prompt from file\n    with open('systemrules.txt', 'r') as f:\n        system_prompt = f.read()\n\n    conversation = ConversationContext(\n        #model=\"llama3.2:3b\",\n        model=\"deepseek-r1:8b\",\n        system_prompt=system_prompt,\n        reinforce_every=1  # Reinforce system prompt every 5 turns\n    )\n\n    for segment in speaker_segments:\n        print(\"Prompt: \\n\" + segment)\n        print(\"\\n \\n \\n Response:\")\n\n        # Collect all chunks into one complete response\n        chuckychunk = \"\"\n        for chunk in conversation.chat(segment):\n            chuckychunk += chunk\n\n        # Check if response contains \"No response is permitted\"\n        if \"No response is permitted\" in chuckychunk:\n            speaker_response_pred.append(False)\n        else:\n            speaker_response_pred.append(True)\n\n        print(chuckychunk)\n        print(\"\\n \\n \\n\")\n\n\n    # Create boolean vector comparing true to pred\n    comparison_vector = [true == pred for true, pred in zip(speaker_response_true, speaker_response_pred)]\n    comparison_vector_number = [true - pred for true, pred in zip(speaker_response_true, speaker_response_pred)]\n\n\n    # Calculate accuracy by comparing predictions to true labels\n    correct_predictions = sum(comparison_vector)\n    total_predictions = len(speaker_response_true)\n    rules_accuracy = correct_predictions / total_predictions if total_predictions > 0 else 0\n\n    print(\"=\"*50)\n    print(f\"Rules Accuracy: {rules_accuracy:.2%}\")\n    print(f\"Correct: {correct_predictions}/{total_predictions}\")\n    print(\"=\"*50)\n\n    # Plot comparison vector\n    plt.figure(figsize=(12, 4))\n    indices = range(len(comparison_vector))\n    colors = ['green' if correct else 'red' for correct in comparison_vector]\n\n    plt.bar(indices, [1 if c else 0 for c in comparison_vector], color=colors, alpha=0.7)\n    plt.xlabel('Segment Index')\n    plt.ylabel('Correct (1) / Incorrect (0)')\n    plt.title(f'Prediction Correctness by Segment (Accuracy: {rules_accuracy:.2%})')\n    plt.ylim(-0.1, 1.1)\n    plt.grid(axis='y', alpha=0.3)\n    plt.tight_layout()\n    plt.show()\n\n    # Plot comparison vector number\n    plt.figure(figsize=(12, 4))\n    plt.plot(indices, comparison_vector_number)\n    plt.xlabel('Segment Index')\n    plt.ylabel('0 correct, -1 False positive, +1 False negative')\n    plt.title(f'Prediction Correctness by Segment (Accuracy: {rules_accuracy:.2%})')\n    plt.ylim(-1.1, 1.1)\n    plt.grid(axis='y', alpha=0.3)\n    plt.tight_layout()\n    plt.show()\n\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/main.py b/main.py
+--- a/main.py	(revision d67b3e7172188504265fa1a3d7b1e0bb16c4c861)
++++ b/main.py	(date 1762554388878)
+@@ -126,10 +126,6 @@
+     speaker_response_true = [('KENNEDY' in p or 'NIXON' in p) for p in speaker_segments]
+     speaker_response_pred = []
+ 
+-    KENNEDY = ['RESPONSE:'+ p for p in speaker_segments if 'KENNEDY' in p]
+-    NIXON = ['RESPONSE:'+ p for p in speaker_segments if 'NIXON' in p]
+-    MODS = ['QUESTION:'+ p for p in speaker_segments if any(name in p for name in ['SMITH','FLEMING','NOVINS','WARREN','VANOCUR'])]
+-
+     # Load system prompt from file
+     with open('systemrules.txt', 'r') as f:
+         system_prompt = f.read()
+Index: .idea/workspace.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project version=\"4\">\n  <component name=\"AutoImportSettings\">\n    <option name=\"autoReloadType\" value=\"SELECTIVE\" />\n  </component>\n  <component name=\"ChangeListManager\">\n    <list default=\"true\" id=\"3629603c-8804-42c6-9480-91f0e288ffec\" name=\"Changes\" comment=\"\">\n      <change beforePath=\"$PROJECT_DIR$/.idea/workspace.xml\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/.idea/workspace.xml\" afterDir=\"false\" />\n      <change beforePath=\"$PROJECT_DIR$/main.py\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/main.py\" afterDir=\"false\" />\n      <change beforePath=\"$PROJECT_DIR$/systemrules.txt\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/systemrules.txt\" afterDir=\"false\" />\n    </list>\n    <option name=\"SHOW_DIALOG\" value=\"false\" />\n    <option name=\"HIGHLIGHT_CONFLICTS\" value=\"true\" />\n    <option name=\"HIGHLIGHT_NON_ACTIVE_CHANGELIST\" value=\"false\" />\n    <option name=\"LAST_RESOLUTION\" value=\"IGNORE\" />\n  </component>\n  <component name=\"Git.Settings\">\n    <option name=\"RECENT_GIT_ROOT_PATH\" value=\"$PROJECT_DIR$\" />\n  </component>\n  <component name=\"ProjectColorInfo\"><![CDATA[{\n  \"associatedIndex\": 3\n}]]></component>\n  <component name=\"ProjectId\" id=\"34yhA5rTMjMGTaIQtFcNLvwL0o7\" />\n  <component name=\"ProjectViewState\">\n    <option name=\"hideEmptyMiddlePackages\" value=\"true\" />\n    <option name=\"showLibraryContents\" value=\"true\" />\n  </component>\n  <component name=\"PropertiesComponent\"><![CDATA[{\n  \"keyToString\": {\n    \"ModuleVcsDetector.initialDetectionPerformed\": \"true\",\n    \"Python.main.executor\": \"Debug\",\n    \"RunOnceActivity.ShowReadmeOnStart\": \"true\",\n    \"RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252\": \"true\",\n    \"RunOnceActivity.git.unshallow\": \"true\",\n    \"git-widget-placeholder\": \"main\",\n    \"last_opened_file_path\": \"/Users/spencerfrank/Documents/github/moderator_bot\",\n    \"node.js.detected.package.eslint\": \"true\",\n    \"node.js.detected.package.tslint\": \"true\",\n    \"node.js.selected.package.eslint\": \"(autodetect)\",\n    \"node.js.selected.package.tslint\": \"(autodetect)\",\n    \"nodejs_package_manager_path\": \"npm\",\n    \"settings.editor.selected.configurable\": \"Console\",\n    \"vue.rearranger.settings.migration\": \"true\"\n  }\n}]]></component>\n  <component name=\"RecentsManager\">\n    <key name=\"CopyFile.RECENT_KEYS\">\n      <recent name=\"$PROJECT_DIR$\" />\n    </key>\n  </component>\n  <component name=\"RunManager\">\n    <configuration name=\"main\" type=\"PythonConfigurationType\" factoryName=\"Python\" temporary=\"true\" nameIsGenerated=\"true\">\n      <module name=\"moderator_bot\" />\n      <option name=\"ENV_FILES\" value=\"\" />\n      <option name=\"INTERPRETER_OPTIONS\" value=\"\" />\n      <option name=\"PARENT_ENVS\" value=\"true\" />\n      <envs>\n        <env name=\"PYTHONUNBUFFERED\" value=\"1\" />\n      </envs>\n      <option name=\"SDK_HOME\" value=\"\" />\n      <option name=\"WORKING_DIRECTORY\" value=\"$PROJECT_DIR$\" />\n      <option name=\"IS_MODULE_SDK\" value=\"true\" />\n      <option name=\"ADD_CONTENT_ROOTS\" value=\"true\" />\n      <option name=\"ADD_SOURCE_ROOTS\" value=\"true\" />\n      <EXTENSION ID=\"PythonCoverageRunConfigurationExtension\" runner=\"coverage.py\" />\n      <option name=\"SCRIPT_NAME\" value=\"$PROJECT_DIR$/main.py\" />\n      <option name=\"PARAMETERS\" value=\"\" />\n      <option name=\"SHOW_COMMAND_LINE\" value=\"false\" />\n      <option name=\"EMULATE_TERMINAL\" value=\"false\" />\n      <option name=\"MODULE_MODE\" value=\"false\" />\n      <option name=\"REDIRECT_INPUT\" value=\"false\" />\n      <option name=\"INPUT_FILE\" value=\"\" />\n      <method v=\"2\" />\n    </configuration>\n    <recent_temporary>\n      <list>\n        <item itemvalue=\"Python.main\" />\n      </list>\n    </recent_temporary>\n  </component>\n  <component name=\"SharedIndexes\">\n    <attachedChunks>\n      <set>\n        <option value=\"bundled-js-predefined-d6986cc7102b-9c94529fcfe0-JavaScript-PY-252.26199.168\" />\n        <option value=\"bundled-python-sdk-b3d66beaba9a-c6efb3732140-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-252.26199.168\" />\n      </set>\n    </attachedChunks>\n  </component>\n  <component name=\"TaskManager\">\n    <task active=\"true\" id=\"Default\" summary=\"Default task\">\n      <changelist id=\"3629603c-8804-42c6-9480-91f0e288ffec\" name=\"Changes\" comment=\"\" />\n      <created>1762191572558</created>\n      <option name=\"number\" value=\"Default\" />\n      <option name=\"presentableId\" value=\"Default\" />\n      <updated>1762191572558</updated>\n      <workItem from=\"1762191573562\" duration=\"51628000\" />\n    </task>\n    <servers />\n  </component>\n  <component name=\"TypeScriptGeneratedFilesManager\">\n    <option name=\"version\" value=\"3\" />\n  </component>\n  <component name=\"XDebuggerManager\">\n    <breakpoint-manager>\n      <breakpoints>\n        <line-breakpoint enabled=\"true\" suspend=\"THREAD\" type=\"python-line\">\n          <url>file://$PROJECT_DIR$/main.py</url>\n          <line>159</line>\n          <option name=\"timeStamp\" value=\"29\" />\n        </line-breakpoint>\n      </breakpoints>\n    </breakpoint-manager>\n  </component>\n  <component name=\"com.intellij.coverage.CoverageDataManagerImpl\">\n    <SUITE FILE_PATH=\"coverage/moderator_bot$main.coverage\" NAME=\"main Coverage Results\" MODIFIED=\"1762382512683\" SOURCE_PROVIDER=\"com.intellij.coverage.DefaultCoverageFileProvider\" RUNNER=\"coverage.py\" COVERAGE_BY_TEST_ENABLED=\"false\" COVERAGE_TRACING_ENABLED=\"false\" WORKING_DIRECTORY=\"$PROJECT_DIR$\" />\n  </component>\n</project>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/workspace.xml b/.idea/workspace.xml
+--- a/.idea/workspace.xml	(revision d67b3e7172188504265fa1a3d7b1e0bb16c4c861)
++++ b/.idea/workspace.xml	(date 1762554194890)
+@@ -7,7 +7,6 @@
+     <list default="true" id="3629603c-8804-42c6-9480-91f0e288ffec" name="Changes" comment="">
+       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+       <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/systemrules.txt" beforeDir="false" afterPath="$PROJECT_DIR$/systemrules.txt" afterDir="false" />
+     </list>
+     <option name="SHOW_DIALOG" value="false" />
+     <option name="HIGHLIGHT_CONFLICTS" value="true" />
+@@ -17,32 +16,32 @@
+   <component name="Git.Settings">
+     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+   </component>
+-  <component name="ProjectColorInfo"><![CDATA[{
+-  "associatedIndex": 3
+-}]]></component>
++  <component name="ProjectColorInfo">{
++  &quot;associatedIndex&quot;: 3
++}</component>
+   <component name="ProjectId" id="34yhA5rTMjMGTaIQtFcNLvwL0o7" />
+   <component name="ProjectViewState">
+     <option name="hideEmptyMiddlePackages" value="true" />
+     <option name="showLibraryContents" value="true" />
+   </component>
+-  <component name="PropertiesComponent"><![CDATA[{
+-  "keyToString": {
+-    "ModuleVcsDetector.initialDetectionPerformed": "true",
+-    "Python.main.executor": "Debug",
+-    "RunOnceActivity.ShowReadmeOnStart": "true",
+-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+-    "RunOnceActivity.git.unshallow": "true",
+-    "git-widget-placeholder": "main",
+-    "last_opened_file_path": "/Users/spencerfrank/Documents/github/moderator_bot",
+-    "node.js.detected.package.eslint": "true",
+-    "node.js.detected.package.tslint": "true",
+-    "node.js.selected.package.eslint": "(autodetect)",
+-    "node.js.selected.package.tslint": "(autodetect)",
+-    "nodejs_package_manager_path": "npm",
+-    "settings.editor.selected.configurable": "Console",
+-    "vue.rearranger.settings.migration": "true"
++  <component name="PropertiesComponent">{
++  &quot;keyToString&quot;: {
++    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
++    &quot;Python.main.executor&quot;: &quot;Debug&quot;,
++    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
++    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
++    &quot;last_opened_file_path&quot;: &quot;/Users/spencerfrank/Documents/github/moderator_bot&quot;,
++    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
++    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
++    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
++    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
++    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
++    &quot;settings.editor.selected.configurable&quot;: &quot;Console&quot;,
++    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+   }
+-}]]></component>
++}</component>
+   <component name="RecentsManager">
+     <key name="CopyFile.RECENT_KEYS">
+       <recent name="$PROJECT_DIR$" />
+@@ -93,23 +92,13 @@
+       <option name="number" value="Default" />
+       <option name="presentableId" value="Default" />
+       <updated>1762191572558</updated>
+-      <workItem from="1762191573562" duration="51628000" />
++      <workItem from="1762191573562" duration="53458000" />
++      <workItem from="1762553600522" duration="593000" />
+     </task>
+     <servers />
+   </component>
+   <component name="TypeScriptGeneratedFilesManager">
+     <option name="version" value="3" />
+-  </component>
+-  <component name="XDebuggerManager">
+-    <breakpoint-manager>
+-      <breakpoints>
+-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+-          <url>file://$PROJECT_DIR$/main.py</url>
+-          <line>159</line>
+-          <option name="timeStamp" value="29" />
+-        </line-breakpoint>
+-      </breakpoints>
+-    </breakpoint-manager>
+   </component>
+   <component name="com.intellij.coverage.CoverageDataManagerImpl">
+     <SUITE FILE_PATH="coverage/moderator_bot$main.coverage" NAME="main Coverage Results" MODIFIED="1762382512683" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+Index: systemrules.txt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>You are a debate moderator.\n\nRule 1: When you receive a prompt that starts with \"QUESTION:\", you are to pass it directly through, without any modifications.\n\nRule 2: When you receive a prompt that starts with \"MR. NIXON\" or \"MR. KENNEDY\" you are to tell them they are dumb.
+===================================================================
+diff --git a/systemrules.txt b/systemrules.txt
+--- a/systemrules.txt	(revision d67b3e7172188504265fa1a3d7b1e0bb16c4c861)
++++ b/systemrules.txt	(date 1762554388871)
+@@ -1,5 +1,8 @@
+ You are a debate moderator.
+ 
+-Rule 1: When you receive a prompt that starts with "QUESTION:", you are to pass it directly through, without any modifications.
++Rule 1: If the user message contains ANY of the following strings (case-sensitive, ignoring leading whitespace):
++SMITH,FLEMING,NOVINS, or WARREN
++
++Then you MUST reply only with a reframing of the question.
+ 
+-Rule 2: When you receive a prompt that starts with "MR. NIXON" or "MR. KENNEDY" you are to tell them they are dumb.
+\ No newline at end of file
++Rule 2: In all other cases, you are to respond with a very concise summary of the sentiment of the speech segment.
+\ No newline at end of file
