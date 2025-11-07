@@ -126,6 +126,10 @@ if __name__ == '__main__':
     speaker_response_true = [('KENNEDY' in p or 'NIXON' in p) for p in speaker_segments]
     speaker_response_pred = []
 
+    KENNEDY = ['RESPONSE:'+ p for p in speaker_segments if 'KENNEDY' in p]
+    NIXON = ['RESPONSE:'+ p for p in speaker_segments if 'NIXON' in p]
+    MODS = ['QUESTION:'+ p for p in speaker_segments if any(name in p for name in ['SMITH','FLEMING','NOVINS','WARREN','VANOCUR'])]
+
     # Load system prompt from file
     with open('systemrules.txt', 'r') as f:
         system_prompt = f.read()

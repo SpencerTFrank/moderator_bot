@@ -27,7 +27,7 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.main.executor": "Run",
+    "Python.main.executor": "Debug",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
@@ -41,6 +41,11 @@
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$" />
+    </key>
+  </component>
   <component name="RunManager">
     <configuration name="main" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="moderator_bot" />
@@ -86,7 +91,7 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1762191572558</updated>
-      <workItem from="1762191573562" duration="49182000" />
+      <workItem from="1762191573562" duration="51628000" />
     </task>
     <servers />
   </component>
